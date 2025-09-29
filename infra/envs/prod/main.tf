@@ -1,13 +1,12 @@
 terraform {
   required_version = ">= 1.5.0"
   required_providers { aws = { source = "hashicorp/aws", version = ">= 5.0" } }
-  # backend "s3" {
-  #   bucket         = "your-tf-state-bucket"
-  #   key            = "ecs-bluegreen/prod/terraform.tfstate"
-  #   region         = "ap-south-1"
-  #   dynamodb_table = "your-tf-locks"
-  #   encrypt        = true
-  # }
+  backend "s3" {
+    bucket  = "tf-state-bucket-1001"
+    key     = "ecs-bluegreen/prod/terraform.tfstate"
+    region  = "ap-south-1"
+    encrypt = true
+  }
 }
 
 provider "aws" { region = var.region }
@@ -33,18 +32,18 @@ module "oidc" {
 }
 
 module "ecs" {
-  source          = "../../modules/ecs-bluegreen"
-  name            = local.name
-  region          = var.region
-  vpc_id          = module.network.vpc_id
-  subnet_ids      = module.network.public_subnet_ids
-  image           = module.ecr.repository_url
-  image_tag       = var.image_tag
-  container_port  = var.container_port
-  desired_count   = var.desired_count
-  task_cpu        = var.task_cpu
-  task_memory     = var.task_memory
-  environment     = "prod"
+  source         = "../../modules/ecs-bluegreen"
+  name           = local.name
+  region         = var.region
+  vpc_id         = module.network.vpc_id
+  subnet_ids     = module.network.public_subnet_ids
+  image          = module.ecr.repository_url
+  image_tag      = var.image_tag
+  container_port = var.container_port
+  desired_count  = var.desired_count
+  task_cpu       = var.task_cpu
+  task_memory    = var.task_memory
+  environment    = "prod"
 }
 
 # output "alb_dns"             { value = module.ecs.alb_dns_name }
