@@ -1,0 +1,142 @@
+name: deploy
+on:
+  push:
+    branches: [main] # deploy on main
+  workflow_dispatch: # allow manual runs
+
+# Prevent overlapping deploys on main
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  id-token: write # required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1 # change if needed
+  TF_DIR: infra/envs/prod # where your Terraform env lives
+  APP_DIR: app # where your Dockerfile lives
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install tooling (jq, terraform)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+          # Terraform is preinstalled on GH runners, but keep this if you want a fixed version:
+          # sudo apt-get install -y unzip
+          # curl -sLo tf.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
+          # sudo unzip -o tf.zip -d /usr/local/bin
+
+      - name: Derive metadata
+        id: meta
+        run: |
+          echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Read Terraform outputs
+        id: tf
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} init -input=false
+          # Refresh is best-effort; backend must be accessible with the OIDC role
+          terraform -chdir=${{ env.TF_DIR }} refresh -lock=false || true
+          echo "alb=$(terraform -chdir=${{ env.TF_DIR }} output -raw alb_dns)" >> $GITHUB_OUTPUT
+          echo "ecr=$(terraform -chdir=${{ env.TF_DIR }} output -raw ecr_repo)" >> $GITHUB_OUTPUT
+          echo "cluster=$(terraform -chdir=${{ env.TF_DIR }} output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "service=$(terraform -chdir=${{ env.TF_DIR }} output -raw service_name)" >> $GITHUB_OUTPUT
+          echo "family=$(terraform -chdir=${{ env.TF_DIR }} output -raw task_family)" >> $GITHUB_OUTPUT
+          echo "cd_app=$(terraform -chdir=${{ env.TF_DIR }} output -raw cd_app)" >> $GITHUB_OUTPUT
+          echo "cd_group=$(terraform -chdir=${{ env.TF_DIR }} output -raw cd_group)" >> $GITHUB_OUTPUT
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & push image
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.tf.outputs.ecr }}"
+          TAG="${{ steps.meta.outputs.sha }}"
+          docker build -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+
+      - name: Register new ECS task definition
+        id: taskdef
+        run: |
+          set -euo pipefail
+          FAMILY="${{ steps.tf.outputs.family }}"
+          NEW_IMAGE="${{ steps.tf.outputs.ecr }}:${{ steps.meta.outputs.sha }}"
+
+          # Get the latest task definition JSON for the family
+          TD_ARN=$(aws ecs list-task-definitions \
+            --family-prefix "$FAMILY" --sort DESC --max-items 1 \
+            --query 'taskDefinitionArns[0]' --output text)
+
+          aws ecs describe-task-definition --task-definition "$TD_ARN" \
+            --query 'taskDefinition' > base.json
+
+          # Replace container image + inject version/env in the container named "app"
+          jq --arg img "$NEW_IMAGE" \
+             'del(.taskDefinitionArn,.revision,.status,.compatibilities,.requiresAttributes,.registeredAt,.registeredBy)
+              | .containerDefinitions = (.containerDefinitions | map(
+                  if .name=="app" then
+                    (.image=$img | .environment = [
+                      {"name":"APP_VERSION","value":"'"${{ steps.meta.outputs.sha }}"'"},
+                      {"name":"APP_ENV","value":"prod"},
+                      {"name":"GIT_SHA","value":"'"${{ steps.meta.outputs.sha }}"'"}
+                    ])
+                  else . end
+                ))' base.json > new.json
+
+          NEW_TD_ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+
+          echo "arn=$NEW_TD_ARN" >> "$GITHUB_OUTPUT"
+
+      - name: Create CodeDeploy blue/green deployment
+        id: deploy
+        run: |
+          set -euo pipefail
+          APP="${{ steps.tf.outputs.cd_app }}"
+          GROUP="${{ steps.tf.outputs.cd_group }}"
+          CLUSTER="${{ steps.tf.outputs.cluster }}"
+          SERVICE="${{ steps.tf.outputs.service }}"
+          TD="${{ steps.taskdef.outputs.arn }}"
+
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name "$APP" \
+            --deployment-group-name "$GROUP" \
+            --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
+            --target-input "{\"ecsServices\":[{\"serviceName\":\"$SERVICE\",\"clusterName\":\"$CLUSTER\"}],\"taskSets\":[{\"taskDefinition\":\"$TD\"}]}" \
+            --query deploymentId --output text)
+
+          echo "id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for deployment to succeed (auto-rollback on alarm/failure)
+        run: aws deploy wait deployment-successful --deployment-id "${{ steps.deploy.outputs.id }}"
+
+      - name: Smoke test ALB
+        run: |
+          set -euo pipefail
+          URL="http://${{ steps.tf.outputs.alb }}"
+          curl -fsS "$URL/healthz/live" >/dev/null
+          curl -fsS "$URL/" | grep -q '"status":"ok"'
+
+      - name: Summary
+        run: |
+          echo "✅ Deployed commit ${{ steps.meta.outputs.sha }} to service: ${{ steps.tf.outputs.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 ALB:  http://${{ steps.tf.outputs.alb }}" >> $GITHUB_STEP_SUMMARY
+          echo "📦 Image: ${{ steps.tf.outputs.ecr }}:${{ steps.meta.outputs.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "🚀 CodeDeploy ID: ${{ steps.deploy.outputs.id }}" >> $GITHUB_STEP_SUMMARY

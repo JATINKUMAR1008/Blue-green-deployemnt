@@ -1,0 +1,11 @@
+output "alb_dns" { value = module.ecs.alb_dns_name }
+output "github_oidc_role_arn" { value = module.oidc.role_arn }
+output "ecr_repo" { value = module.ecr.repository_url }
+output "cluster_name" { value = module.ecs.cluster_name }
+output "service_name" { value = module.ecs.service_name }
+output "task_family" { value = module.ecs.task_family }
+output "cd_app" { value = module.ecs.cd_app }
+output "cd_group" { value = module.ecs.cd_group }
+output "listener_arn" { value = module.ecs.listener_arn }
+output "tg_blue_arn" { value = module.ecs.tg_blue_arn }
+output "tg_green_arn" { value = module.ecs.tg_green_arn }

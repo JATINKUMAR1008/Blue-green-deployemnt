@@ -1,0 +1,77 @@
+# ───────── General ─────────
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.swp
+*.swo
+
+# ───────── Python (app/) ─────────
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.build/
+dist/
+htmlcov/
+.coverage*
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.dmypy.json
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Env/config
+.env
+.env.*          # keep .env.example in repo
+!.env.example
+
+# ───────── Docker ─────────
+# (image layers are local to your machine; nothing to ignore beyond this)
+docker-compose.override.yml
+.dockerignore.local
+
+# ───────── Terraform (infra/) ─────────
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*
+**/crash.log
+**/crash.*.log
+**/*.tfvars
+**/*.tfvars.json
+# local plans
+**/*.tfplan
+# override files (local, not for source control)
+**/*_override.tf
+**/*_override.tf.json
+**/override.tf
+**/override.tf.json
+
+# ───────── IDE/Editor ─────────
+# VS Code
+.vscode/
+# JetBrains (PyCharm/IntelliJ)
+.idea/
+*.iml
+
+# ───────── OS-specific ─────────
+# macOS
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# ───────── CI (keep workflows tracked) ─────────
+!.github/
+!.github/workflows/
