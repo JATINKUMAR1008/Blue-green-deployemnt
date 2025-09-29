@@ -127,15 +127,40 @@ jobs:
           set -euo pipefail
           APP="${{ steps.tf.outputs.cd_app }}"
           GROUP="${{ steps.tf.outputs.cd_group }}"
-          CLUSTER="${{ steps.tf.outputs.cluster }}"
-          SERVICE="${{ steps.tf.outputs.service }}"
           TD="${{ steps.taskdef.outputs.arn }}"
+
+          # Determine container port from the task definition we just registered
+          PORT=$(jq -r '.containerDefinitions[] | select(.name=="app") | .portMappings[0].containerPort' new.json)
+
+          # Build AppSpec for ECS deployment
+          cat > appspec.json <<EOF
+          {
+            "version": 1,
+            "Resources": [
+              {
+                "TargetService": {
+                  "Type": "AWS::ECS::Service",
+                  "Properties": {
+                    "TaskDefinition": "${TD}",
+                    "LoadBalancerInfo": {
+                      "ContainerName": "app",
+                      "ContainerPort": ${PORT}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+
+          # Wrap AppSpec in the revision structure expected by CodeDeploy
+          jq -n --arg content "$(cat appspec.json)" '{revisionType:"AppSpecContent", appSpecContent:{content:$content}}' > revision.json
 
           DEPLOY_ID=$(aws deploy create-deployment \
             --application-name "$APP" \
             --deployment-group-name "$GROUP" \
             --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
-            --target-input "{\"ecsServices\":[{\"serviceName\":\"$SERVICE\",\"clusterName\":\"$CLUSTER\"}],\"taskSets\":[{\"taskDefinition\":\"$TD\"}]}" \
+            --revision file://revision.json \
             --query deploymentId --output text)
           echo "id=$DEPLOY_ID" >> $GITHUB_OUTPUT
 
