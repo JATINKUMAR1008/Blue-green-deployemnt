@@ -1,8 +1,8 @@
 name: deploy
 on:
   push:
-    branches: [main] # deploy on main
-  workflow_dispatch: # allow manual runs
+    branches: [main]          # deploy on main
+  workflow_dispatch:          # allow manual runs
 
 # Prevent overlapping deploys on main
 concurrency:
@@ -10,8 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write # required for OIDC
-  contents: read
+  contents: read              # no OIDC needed when using keys
 
 env:
   AWS_REGION: ap-south-1
@@ -33,13 +32,16 @@ jobs:
         with:
           terraform_version: 1.7.5
 
-      - name: Configure AWS (OIDC)
+      # 🔐 Configure AWS using access keys stored as repo secrets
+      - name: Configure AWS (access keys)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }} # optional
+          aws-region:            ${{ env.AWS_REGION }}
 
-      - name: Who am I? (verify role)
+      - name: Who am I? (verify keys)
         run: aws sts get-caller-identity
 
       - name: Install tooling (jq)
@@ -135,7 +137,7 @@ jobs:
             --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
             --target-input "{\"ecsServices\":[{\"serviceName\":\"$SERVICE\",\"clusterName\":\"$CLUSTER\"}],\"taskSets\":[{\"taskDefinition\":\"$TD\"}]}" \
             --query deploymentId --output text)
-          echo "id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
+          echo "id=$DEPLOY_ID" >> $GITHUB_OUTPUT
 
       - name: Wait for deployment to succeed (auto-rollback on alarm/failure)
         run: aws deploy wait deployment-successful --deployment-id "${{ steps.deploy.outputs.id }}"
