@@ -187,11 +187,7 @@ resource "aws_iam_role" "codedeploy" {
 
 resource "aws_iam_role_policy_attachment" "cd_attach" {
   role       = aws_iam_role.codedeploy.name
-  policy_arn = data.aws_iam_policy.codedeploy_ecs.arn
-}
-
-data "aws_iam_policy" "codedeploy_ecs" {
-  name = "AWSCodeDeployRoleForECS"
+  policy_arn = "arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS"
 }
 
 # Alarms for auto-rollback
