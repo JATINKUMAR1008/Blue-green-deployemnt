@@ -25,20 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
       - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Install tooling (jq, terraform)
+      - name: Install tooling (jq)
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-          # Terraform is preinstalled on GH runners, but keep this if you want a fixed version:
-          # sudo apt-get install -y unzip
-          # curl -sLo tf.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
-          # sudo unzip -o tf.zip -d /usr/local/bin
 
       - name: Derive metadata
         id: meta
