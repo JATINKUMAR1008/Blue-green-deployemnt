@@ -90,6 +90,7 @@ jobs:
           docker build -t "$IMAGE:$TAG" .
           docker push "$IMAGE:$TAG"
 
+      # ✅ Safer: fetch latest ACTIVE TD by family, then register with new image
       - name: Register new ECS task definition
         id: taskdef
         run: |
@@ -97,28 +98,15 @@ jobs:
           FAMILY="${{ steps.tf.outputs.family }}"
           NEW_IMAGE="${{ steps.tf.outputs.ecr }}:${{ steps.meta.outputs.sha }}"
 
-          # Try to find an existing task definition to use as a base
-          TD_ARN=$(aws ecs list-task-definitions \
-            --family-prefix "$FAMILY" --sort DESC --max-items 1 \
-            --query 'taskDefinitionArns[0]' --output text || true)
-
-          if [ -z "$TD_ARN" ] || [ "$TD_ARN" = "None" ]; then
-            echo "No TD from list-task-definitions; falling back to service's current TD"
-            CLUSTER="${{ steps.tf.outputs.cluster }}"
-            SERVICE="${{ steps.tf.outputs.service }}"
-            TD_ARN=$(aws ecs describe-services \
-              --cluster "$CLUSTER" --services "$SERVICE" \
-              --query 'services[0].taskDefinition' --output text || true)
-          fi
-
-          if [ -z "$TD_ARN" ] || [ "$TD_ARN" = "None" ] || [ "$TD_ARN" = "NoneType" ]; then
-            echo "Error: Could not determine an existing task definition to base from." >&2
+          # Get latest ACTIVE task definition using the FAMILY name
+          if ! aws ecs describe-task-definition --task-definition "$FAMILY" \
+              --query 'taskDefinition' > base.json 2>/dev/null; then
+            echo "Could not find a task definition by family '$FAMILY'." >&2
+            echo "Ensure Terraform created the initial TD successfully." >&2
             exit 1
           fi
 
-          aws ecs describe-task-definition --task-definition "$TD_ARN" \
-            --query 'taskDefinition' > base.json
-
+          # Swap image + inject version/env on the 'app' container
           jq --arg img "$NEW_IMAGE" \
              'del(.taskDefinitionArn,.revision,.status,.compatibilities,.requiresAttributes,.registeredAt,.registeredBy)
               | .containerDefinitions = (.containerDefinitions | map(
