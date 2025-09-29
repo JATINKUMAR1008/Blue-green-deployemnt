@@ -14,11 +14,11 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ap-south-1 # change if needed
-  TF_DIR: infra/envs/prod # where your Terraform env lives
-  APP_DIR: app # where your Dockerfile lives
+  AWS_REGION: ap-south-1
+  TF_DIR: infra/envs/prod
+  APP_DIR: app
   # ✅ Provide TF variables so Terraform never prompts:
-  TF_VAR_github_repo: jatin123/a_b_deployment
+  TF_VAR_github_repo: JATINKUMAR1008/Blue-green-deployemnt
   TF_VAR_image_tag: init
 
 jobs:
@@ -39,6 +39,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Who am I? (verify role)
+        run: aws sts get-caller-identity
+
       - name: Install tooling (jq)
         run: |
           sudo apt-get update
@@ -46,10 +49,9 @@ jobs:
 
       - name: Derive metadata
         id: meta
-        run: |
-          echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        run: echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
-      # ✅ New: ensure infra exists (first run) then skip on subsequent runs
+      # ✅ Ensure infra exists on first run; skip apply once state is present
       - name: Ensure infra exists (apply only if no state)
         run: |
           set -euo pipefail
@@ -57,9 +59,9 @@ jobs:
           terraform -chdir="$TF_DIR" init -input=false
           if ! terraform -chdir="$TF_DIR" state list >/dev/null 2>&1; then
             echo "No state found — bootstrapping infra…"
-            terraform -chdir="$TF_DIR" apply -auto-approve -var github_repo="JATINKUMAR1008/Blue-green-deployemnt" -var image_tag="init"
+            terraform -chdir="$TF_DIR" apply -auto-approve -input=false
           else
-            echo "State exists — skipping apply."
+            echo "State exists — skipping infra apply."
           fi
 
       - name: Read Terraform outputs
@@ -93,7 +95,6 @@ jobs:
           FAMILY="${{ steps.tf.outputs.family }}"
           NEW_IMAGE="${{ steps.tf.outputs.ecr }}:${{ steps.meta.outputs.sha }}"
 
-          # Get the latest task definition JSON for the family
           TD_ARN=$(aws ecs list-task-definitions \
             --family-prefix "$FAMILY" --sort DESC --max-items 1 \
             --query 'taskDefinitionArns[0]' --output text)
@@ -101,7 +102,6 @@ jobs:
           aws ecs describe-task-definition --task-definition "$TD_ARN" \
             --query 'taskDefinition' > base.json
 
-          # Replace container image + inject version/env in the container named "app"
           jq --arg img "$NEW_IMAGE" \
              'del(.taskDefinitionArn,.revision,.status,.compatibilities,.requiresAttributes,.registeredAt,.registeredBy)
               | .containerDefinitions = (.containerDefinitions | map(
@@ -117,7 +117,6 @@ jobs:
           NEW_TD_ARN=$(aws ecs register-task-definition \
             --cli-input-json file://new.json \
             --query 'taskDefinition.taskDefinitionArn' --output text)
-
           echo "arn=$NEW_TD_ARN" >> "$GITHUB_OUTPUT"
 
       - name: Create CodeDeploy blue/green deployment
@@ -136,7 +135,6 @@ jobs:
             --deployment-config-name CodeDeployDefault.ECSAllAtOnce \
             --target-input "{\"ecsServices\":[{\"serviceName\":\"$SERVICE\",\"clusterName\":\"$CLUSTER\"}],\"taskSets\":[{\"taskDefinition\":\"$TD\"}]}" \
             --query deploymentId --output text)
-
           echo "id=$DEPLOY_ID" >> "$GITHUB_OUTPUT"
 
       - name: Wait for deployment to succeed (auto-rollback on alarm/failure)
