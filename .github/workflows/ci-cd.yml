@@ -17,6 +17,9 @@ env:
   AWS_REGION: ap-south-1 # change if needed
   TF_DIR: infra/envs/prod # where your Terraform env lives
   APP_DIR: app # where your Dockerfile lives
+  # ✅ Provide TF variables so Terraform never prompts:
+  TF_VAR_github_repo: jatin123/a_b_deployment
+  TF_VAR_image_tag: init
 
 jobs:
   deploy:
@@ -46,11 +49,22 @@ jobs:
         run: |
           echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
 
+      # ✅ New: ensure infra exists (first run) then skip on subsequent runs
+      - name: Ensure infra exists (apply only if no state)
+        run: |
+          set -euo pipefail
+          TF_DIR="${{ env.TF_DIR }}"
+          terraform -chdir="$TF_DIR" init -input=false
+          if ! terraform -chdir="$TF_DIR" state list >/dev/null 2>&1; then
+            echo "No state found — bootstrapping infra…"
+            terraform -chdir="$TF_DIR" apply -auto-approve -var github_repo="JATINKUMAR1008/Blue-green-deployemnt" -var image_tag="init"
+          else
+            echo "State exists — skipping apply."
+          fi
+
       - name: Read Terraform outputs
         id: tf
         run: |
-          terraform -chdir=${{ env.TF_DIR }} init -input=false
-          # Refresh is best-effort; backend must be accessible with the OIDC role
           terraform -chdir=${{ env.TF_DIR }} refresh -lock=false || true
           echo "alb=$(terraform -chdir=${{ env.TF_DIR }} output -raw alb_dns)" >> $GITHUB_OUTPUT
           echo "ecr=$(terraform -chdir=${{ env.TF_DIR }} output -raw ecr_repo)" >> $GITHUB_OUTPUT
