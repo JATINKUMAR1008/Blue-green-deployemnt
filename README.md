@@ -1,4 +1,4 @@
-# a_b_deployment
+# blue_green_deployment
 
 Production‑ready FastAPI service deployed with blue/green on AWS ECS Fargate using Terraform and GitHub Actions.
 
