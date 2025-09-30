@@ -17,5 +17,5 @@ RUN useradd -m nonroot
 COPY --from=base /usr/local /usr/local
 COPY --from=base /app/src /app/src
 USER nonroot
-EXPOSE 8080
+EXPOSE 8000
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
