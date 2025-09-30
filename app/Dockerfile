@@ -13,7 +13,11 @@ FROM python:3.11-slim
 WORKDIR /app
 ENV APP_VERSION=0.1.0 \
     APP_ENV=container
-RUN useradd -m nonroot
+# Install curl for container health checks executed by ECS
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m nonroot
 COPY --from=base /usr/local /usr/local
 COPY --from=base /app/src /app/src
 USER nonroot
