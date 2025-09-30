@@ -12,7 +12,7 @@ variable "image_tag" {
 }
 variable "container_port" {
   type    = number
-  default = 8080
+  default = 8000
 }
 variable "health_check_path" {
   type    = string

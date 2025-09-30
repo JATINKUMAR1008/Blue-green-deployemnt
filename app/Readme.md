@@ -10,7 +10,7 @@ python -**m** venv .**venv** && **source** .**venv**/**bin**/**activate**
 
 pip install -**e** .[**dev**]
 
-uvicorn src.**main**:**app** --**reload** --**port** **8080**
+uvicorn src.**main**:**app** --**reload** --**port** **8000**
 
 ```
 
@@ -28,7 +28,7 @@ uvicorn src.**main**:**app** --**reload** --**port** **8080**
 
 **docker** **build** -**t** **shop**-**api**:**dev** ./**app**
 
-**docker** **run** -**p** **8080**:**8080** -**e** **APP_VERSION**=**dev** -**e** **GIT_SHA**=$(**git** rev-**parse** --**short** HEAD) **shop**-**api**:**dev**
+**docker** **run** -**p** **8000**:**8000** -**e** **APP_VERSION**=**dev** -**e** **GIT_SHA**=$(**git** rev-**parse** --**short** HEAD) **shop**-**api**:**dev**
 
 ```
 
